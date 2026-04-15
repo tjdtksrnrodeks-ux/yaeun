@@ -41,15 +41,19 @@
 
         let isCooldown = false; // 알림이 미친 듯이 연달아 울리는 것을 막는 쿨타임 변수
 
-        // 간단한 비프음(삐~ 소리)을 내는 함수 (파일 업로드 필요 없음)
-        function playBeep() {
-            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            const oscillator = audioCtx.createOscillator();
-            oscillator.type = 'sine';
-            oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); // 소리 높낮이
-            oscillator.connect(audioCtx.destination);
-            oscillator.start();
-            oscillator.stop(audioCtx.currentTime + 0.3); // 0.3초 동안 재생
+        // 새로운 음성 안내(TTS) 함수
+        function speakText(text) {
+        // 혹시 이미 말하고 있는 게 있다면 멈춤
+        window.speechSynthesis.cancel(); 
+
+        // 읽을 문구 설정
+        const speechMsg = new SpeechSynthesisUtterance(text);
+        speechMsg.rate = 1.0; // 말하기 속도 (1.0이 기본, 숫자를 키우면 빨라짐)
+        speechMsg.pitch = 1.0; // 목소리 톤 (높낮이)
+        speechMsg.lang = "ko-KR"; // 한국어 설정
+
+        // 브라우저에게 말하라고 명령
+        window.speechSynthesis.speak(speechMsg);
         }
 
         document.getElementById('startBtn').addEventListener('click', async () => {
@@ -100,10 +104,12 @@
 
             // 5. 색상을 발견했고, 쿨타임이 아닐 때 알림!
             if (found && !isCooldown) {
-                statusText.innerText = "🚨 목표 색상 감지!! 알림 발생!";
-                statusText.style.color = "red";
-                playBeep(); // 삐 소리 재생
-                
+            statusText.innerText = "🚨 목표 색상 감지!! 알림 발생!";
+            statusText.style.color = "red";
+    
+            // TTS 함수 호출 (원하는 멘트를 큰따옴표 안에 적어주세요!)
+            speakText("주의! 패턴이 나타났습니다.");
+                        
                 isCooldown = true; // 쿨타임 시작
                 setTimeout(() => { 
                     isCooldown = false; // 5초 뒤에 쿨타임 해제
