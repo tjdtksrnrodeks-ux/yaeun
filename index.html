@@ -2,21 +2,19 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>메이플스토리 알리미 테스트</title>
+    <title>메이플스토리 영역 인식 알리미</title>
     <style>
         body { background-color: #222; color: white; font-family: sans-serif; text-align: center; }
-        #gameVideo { display: none; } /* 원본 비디오는 숨김 */
+        #gameVideo { display: none; }
         #gameCanvas { border: 2px solid #444; margin-top: 20px; max-width: 800px; }
-        .info-box { margin-top: 15px; font-size: 20px; color: #00ff00; }
+        .info-box { margin-top: 15px; font-size: 20px; color: #00ff00; font-weight: bold; }
     </style>
 </head>
 <body>
-    <h2>메이플 화면 인식 테스트</h2>
+    <h2>메이플 영역 인식 타이머</h2>
     <button id="startBtn" style="padding: 10px 20px; font-size: 16px; cursor: pointer;">1. 메이플 창 선택하기</button>
     
-    <div class="info-box">
-        현재 지정된 X, Y 좌표의 색상 (RGB): <span id="colorResult">대기 중...</span>
-    </div>
+    <div class="info-box" id="statusText">대기 중...</div>
 
     <video id="gameVideo" autoplay></video>
     <canvas id="gameCanvas"></canvas>
@@ -25,22 +23,44 @@
         const video = document.getElementById('gameVideo');
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d', { willReadFrequently: true });
-        const colorResult = document.getElementById('colorResult');
+        const statusText = document.getElementById('statusText');
 
-        // ★ 여기서 내가 감시하고 싶은 화면 속 X, Y 좌표를 설정합니다!
-        const targetX = 500; 
-        const targetY = 300; 
+        // ==========================================
+        // 🎯 [설정 칸] 여기서 검색할 영역과 색상을 지정하세요!
+        // ==========================================
+        const searchX = 300;   // 검색 박스 시작 위치 (왼쪽에서부터)
+        const searchY = 200;   // 검색 박스 시작 위치 (위에서부터)
+        const searchW = 150;   // 검색 박스 가로 길이
+        const searchH = 80;    // 검색 박스 세로 길이
+
+        const targetR = 255;   // 찾고 싶은 색상의 R 값 (예: 빨간색)
+        const targetG = 50;    // 찾고 싶은 색상의 G 값
+        const targetB = 50;    // 찾고 싶은 색상의 B 값
+        const tolerance = 40;  // 오차 허용 범위 (0~255). 이펙트 겹침을 대비해 넉넉하게 줍니다.
+        // ==========================================
+
+        let isCooldown = false; // 알림이 미친 듯이 연달아 울리는 것을 막는 쿨타임 변수
+
+        // 간단한 비프음(삐~ 소리)을 내는 함수 (파일 업로드 필요 없음)
+        function playBeep() {
+            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const oscillator = audioCtx.createOscillator();
+            oscillator.type = 'sine';
+            oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); // 소리 높낮이
+            oscillator.connect(audioCtx.destination);
+            oscillator.start();
+            oscillator.stop(audioCtx.currentTime + 0.3); // 0.3초 동안 재생
+        }
 
         document.getElementById('startBtn').addEventListener('click', async () => {
             try {
-                // 화면 공유 창 띄우기
                 const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
                 video.srcObject = stream;
                 
-                // 비디오가 재생되기 시작하면 도화지(Canvas) 크기를 맞추고 인식 루프 시작
                 video.onplay = () => {
                     canvas.width = video.videoWidth;
                     canvas.height = video.videoHeight;
+                    statusText.innerText = "녹색 박스 안을 감시 중입니다...";
                     requestAnimationFrame(analyzeFrame);
                 };
             } catch (err) {
@@ -48,29 +68,40 @@
             }
         });
 
-        // 1초에 수십 번씩 화면을 캡처하고 색상을 읽어내는 핵심 루프 함수
         function analyzeFrame() {
             if (video.paused || video.ended) return;
 
-            // 1. 비디오 영상을 캔버스에 그리기
+            // 1. 화면 그리기
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-            // 2. 지정한 좌표(targetX, targetY)의 픽셀 1개 데이터(색상) 가져오기
-            const pixelData = ctx.getImageData(targetX, targetY, 1, 1).data;
-            const r = pixelData[0];
-            const g = pixelData[1];
-            const b = pixelData[2];
+            // 2. 검색 영역을 화면에 초록색 테두리로 표시 (테스트용)
+            ctx.strokeStyle = "lime";
+            ctx.lineWidth = 3;
+            ctx.strokeRect(searchX, searchY, searchW, searchH);
 
-            // 3. 화면에 현재 색상 값 출력 (테스트용)
-            colorResult.innerText = `R:${r}, G:${g}, B:${b}`;
+            // 3. 초록색 박스 안의 모든 픽셀 데이터를 한 번에 가져오기
+            const frameData = ctx.getImageData(searchX, searchY, searchW, searchH).data;
+            let found = false;
 
-            // 4. 화면에 내가 인식하고 있는 위치에 빨간색 점 찍어서 보여주기
-            ctx.fillStyle = "red";
-            ctx.fillRect(targetX - 5, targetY - 5, 10, 10);
+            // 4. 박스 안의 픽셀들을 빛의 속도로 하나씩 검사
+            for (let i = 0; i < frameData.length; i += 4) {
+                let r = frameData[i];
+                let g = frameData[i+1];
+                let b = frameData[i+2];
 
-            // 다음 프레임 계속 반복
-            requestAnimationFrame(analyzeFrame);
-        }
-    </script>
-</body>
-</html>
+                // 목표 색상과 오차 범위 내로 비슷한 픽셀이 하나라도 있는지 확인
+                if (Math.abs(r - targetR) <= tolerance &&
+                    Math.abs(g - targetG) <= tolerance &&
+                    Math.abs(b - targetB) <= tolerance) {
+                    found = true;
+                    break; // 찾았으면 더 이상 검사할 필요 없이 스탑
+                }
+            }
+
+            // 5. 색상을 발견했고, 쿨타임이 아닐 때 알림!
+            if (found && !isCooldown) {
+                statusText.innerText = "🚨 목표 색상 감지!! 알림 발생!";
+                statusText.style.color = "red";
+                playBeep(); // 삐 소리 재생
+                
+                isCooldown = true; // 쿨타임 시작
