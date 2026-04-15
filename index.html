@@ -16,7 +16,7 @@
     
     <div class="info-box" id="statusText">대기 중...</div>
 
-    <video id="gameVideo" autoplay></video>
+    <video id="gameVideo" autoplay muted></video>
     <canvas id="gameCanvas"></canvas>
 
     <script>
@@ -57,14 +57,19 @@
                 const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
                 video.srcObject = stream;
                 
-                video.onplay = () => {
+                // --- 이 부분을 수정합니다 ---
+                video.onloadedmetadata = () => {
+                    video.play(); // 브라우저에게 확실하게 재생하라고 명령
                     canvas.width = video.videoWidth;
                     canvas.height = video.videoHeight;
                     statusText.innerText = "녹색 박스 안을 감시 중입니다...";
                     requestAnimationFrame(analyzeFrame);
                 };
+                // -------------------------
+
             } catch (err) {
-                alert("화면 공유가 취소되었습니다.");
+                alert("화면 공유가 취소되었거나 에러가 발생했습니다.");
+                console.error(err);
             }
         });
 
